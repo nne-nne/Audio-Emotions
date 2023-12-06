@@ -5,7 +5,6 @@ import librosa
 import librosa.display
 import matplotlib.pyplot as plt
 import numpy as np
-import tensorflow as tf
 import keras
 from keras.callbacks import TensorBoard
 from keras.callbacks import ModelCheckpoint
@@ -13,6 +12,8 @@ from keras.models import Sequential
 from keras.layers import LSTM, Dense, Dropout
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
+import wandb
+from wandb.integration.keras import WandbMetricsLogger, WandbModelCheckpoint
 
 max_length = 230  # 308
 n_mfcc = 40
@@ -61,7 +62,7 @@ def generate_padded_spectrogram(input_file, output_file, max_length, save_image=
     D = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
 
     # Pad or truncate the spectrogram to the desired length
-    padded_D = tf.keras.utils.pad_sequences([D.T], maxlen=max_length, padding='post', truncating='post', dtype='float32', value=0)[0].T
+    padded_D = keras.utils.pad_sequences([D.T], maxlen=max_length, padding='post', truncating='post', dtype='float32', value=0)[0].T
 
     # Plot the spectrogram without labels and margins
     if save_image:
@@ -170,12 +171,34 @@ def load_spectrogram_data():
     return features, labels
 
 if __name__ == "__main__":
-    # get_max_size()
     if not os.path.exists("spectrograms/spectrogram_data.npz"):
         X_data, y_data = generate_all_spectrograms()
     else:
         X_data, y_data = load_spectrogram_data()
 
+    # Initialize wandb
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="audioemo",
+
+        # track hyperparameters and run metadata with wandb.config
+        config={
+            "layer_1": 128,
+            "activation_1": "tanh",
+            "layer_2": 64,
+            "activation_2": "tanh",
+            "layer_3": 256,
+            "activation_3": "relu",
+            "dropout": 0.5,
+            "layer_5": 256,
+            "activation_5": "softmax",
+            "optimizer": "adam",
+            "loss": "categorical_crossentropy",
+            "metric": "accuracy",
+            "epoch": 20,
+            "batch_size": 32
+        }
+    )
 
     x_train, x_test, y_train, y_test = train_test_split(X_data, y_data, test_size=0.1, random_state=42)
     model = Sequential()
@@ -189,23 +212,28 @@ if __name__ == "__main__":
     # Compile the model
     model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
 
-    # Set up TensorBoard callback
-    log_dir = "logs/" + datetime.now().strftime("%Y%m%d-%H%M%S")
-    tensorboard_callback = TensorBoard(log_dir=log_dir, histogram_freq=1)
-
-    # Set up ModelCheckpoint callback
-    checkpoint_path = "model_saves/model_checkpoint.h5"
-    checkpoint_callback = ModelCheckpoint(checkpoint_path, save_best_only=True)
-
     # Train the model
-    model.fit(x_train, y_train, epochs=20, batch_size=32, validation_split=0.2, callbacks=[tensorboard_callback, checkpoint_callback])
+    history = model.fit(x_train, y_train, epochs=20, batch_size=32, validation_split=0.2, callbacks=[WandbMetricsLogger(log_freq=5),
+                      WandbModelCheckpoint("models")])
+
+    # Log hyperparameters using wandb
+    # wandb.config.epochs = 20
+    # wandb.config.batch_size = 32
+
+    # Log training results using wandb
+    wandb.log({'train_loss': history.history['loss'][-1], 'train_accuracy': history.history['accuracy'][-1]})
+    wandb.log({'val_loss': history.history['val_loss'][-1], 'val_accuracy': history.history['val_accuracy'][-1]})
 
     # Evaluate the model on the test set
     accuracy = model.evaluate(x_test, y_test)[1]
     print(f"Test Accuracy: {accuracy * 100}%")
 
     # Evaluate the model on the test set
-    accuracy = model.evaluate(x_train[0:1000], y_train[0:1000])[1]
-    print(f"Test Accuracy: {accuracy * 100}%")
+    accuracy_train = model.evaluate(x_train[0:1000], y_train[0:1000])[1]
+    print(f"Test Accuracy: {accuracy_train * 100}%")
 
-    # generate_spectrogram_chart("./res/AudioEmotions/Emotions/Sad/OAF_king_sad.wav", "spectrograms/d.png")
+    # Log test results using wandb
+    wandb.log({'test_accuracy': accuracy * 100, 'subset_train_accuracy': accuracy_train * 100})
+
+    # Finish the wandb run
+    wandb.finish()
