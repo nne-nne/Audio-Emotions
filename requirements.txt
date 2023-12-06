@@ -1,0 +1,6 @@
+tensorflow~=2.11.0
+keras~=2.11.0
+librosa~=0.10.1
+matplotlib~=3.5.3
+numpy~=1.21.6
+scikit-learn~=1.0.2
