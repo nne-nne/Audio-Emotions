@@ -216,10 +216,6 @@ if __name__ == "__main__":
     history = model.fit(x_train, y_train, epochs=20, batch_size=32, validation_split=0.2, callbacks=[WandbMetricsLogger(log_freq=5),
                       WandbModelCheckpoint("models")])
 
-    # Log hyperparameters using wandb
-    # wandb.config.epochs = 20
-    # wandb.config.batch_size = 32
-
     # Log training results using wandb
     wandb.log({'train_loss': history.history['loss'][-1], 'train_accuracy': history.history['accuracy'][-1]})
     wandb.log({'val_loss': history.history['val_loss'][-1], 'val_accuracy': history.history['val_accuracy'][-1]})
