@@ -9,12 +9,10 @@ from keras.models import Sequential
 from keras.layers import LSTM, Dense, Dropout
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from torch import device
-from wandb.wandb_torch import torch
+import tensorflow as tf
 
 import wandb
 from wandb.integration.keras import WandbMetricsLogger, WandbModelCheckpoint
-from torch.utils.data import DataLoader
 import absl.logging
 
 # turn off warnings
@@ -188,31 +186,11 @@ def train(config=None):
         # Log test results using wandb
         wandb.log({'test_accuracy': accuracy * 100, 'subset_train_accuracy': accuracy_train * 100})
 
+        model.save(f'model_saves/{wandb.run.name}.h5')
         # Finish the wandb run
         wandb.finish()
 
-
 def new_ml():
-    # # Initialize wandb
-    # wandb.init(
-    #     # set the wandb project where this run will be logged
-    #     project="audioemo",
-    #
-    #     # track hyperparameters and run metadata with wandb.config
-    #     config={
-    #         "layer_size_1": 128,
-    #         "layer_size_2": 64,
-    #         "layer_size_3": 128,
-    #         "activation_3": "relu",
-    #         "dropout": 0.4,
-    #         "activation_4": "softmax",
-    #         "optimizer": "adam",
-    #         "loss": "categorical_crossentropy",
-    #         "metric": ["accuracy"],
-    #         "epoch": 10,
-    #         "batch_size": 32
-    #     }
-    # )
     config = {
         "layer_size_1": 128,
         "layer_size_2": 64,
@@ -230,37 +208,45 @@ def new_ml():
 
 
 if __name__ == "__main__":
+    # new_ml()
+
     if not os.path.exists(f"spectrograms/spectrogram_data{num_classes}.npz"):
         X_data, y_data = generate_all_spectrograms()
     else:
         X_data, y_data = load_spectrogram_data()
 
     run = wandb.init()
-    model_artifact = run.use_artifact('audioemo/audioemo/run_o2b824li_model:v9', type='model')
-    model_dir = model_artifact.download()
 
+    model = keras.models.load_model('artifacts/run_o2b824li_model-v9' if num_classes == 6 else 'model_saves/feasible-smoke-11.h5')
 
-    model_path = os.path.join(model_dir, "initialized_model.pth")
-    model_config = model_artifact.metadata
-    config = wandb.config
-    config.update(model_config)
+    modified_model = tf.keras.Sequential(model.layers[:-1])
+
+    # Add a new layer
+    modified_model.add(Dense(num_classes, activation='softmax', name='new_output_layer'))  # Example new layer
+
+    # Freeze existing layers
+    for layer in modified_model.layers[:-1]:
+        layer.trainable = False
+
     x_train, x_test, y_train, y_test = train_test_split(X_data, y_data, test_size=0.1, random_state=42)
-    model = Sequential(**model_config)
-    model.load_state_dict(torch.load(model_path))
-    model = model.to(device)
-    model.summary()
 
-    accuracy = model.evaluate(x_test, y_test)[1]
+    # Compile the model
+    modified_model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=["accuracy"])
+
+    # Train the model
+    history = modified_model.fit(x_train, y_train, epochs=3, batch_size=32, validation_split=0.2,
+                        callbacks=[WandbMetricsLogger(log_freq=1),
+                                   WandbModelCheckpoint("models")])
+
+    accuracy = modified_model.evaluate(x_test, y_test)[1]
+    print(f'Experiment for classification for model trained on {num_classes} emotions used to classify {num_classes + 1 if num_classes == 6 else num_classes - 1} emotions')
     print(f"Test Accuracy: {accuracy * 100}%")
 
     # Evaluate the model on the test set
-    accuracy_train = model.evaluate(x_train[0:1000], y_train[0:1000])[1]
+    accuracy_train = modified_model.evaluate(x_train[0:1000], y_train[0:1000])[1]
     print(f"Test Accuracy: {accuracy_train * 100}%")
 
     # Log test results using wandb
     wandb.log({'test_accuracy': accuracy * 100, 'subset_train_accuracy': accuracy_train * 100})
-
-
-
 
     wandb.finish()

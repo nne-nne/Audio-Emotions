@@ -4,4 +4,5 @@ librosa
 matplotlib
 numpy
 scikit-learn
+torch
 wandb
