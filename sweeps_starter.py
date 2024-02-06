@@ -9,20 +9,16 @@ from keras.models import Sequential
 from keras.layers import LSTM, Dense, Dropout
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from torch import device
-from wandb.wandb_torch import torch
-
 import wandb
 from wandb.integration.keras import WandbMetricsLogger, WandbModelCheckpoint
-from torch.utils.data import DataLoader
 import absl.logging
-
-# turn off warnings
+#turn off warnings
 absl.logging.set_verbosity(absl.logging.ERROR)
 
 max_length = 230  # 308
 n_mfcc = 40
-num_classes = 7
+num_classes = 6
+sweep_id = '0hvb248t'
 
 
 # 1311  -     / 426
@@ -32,7 +28,7 @@ def generate_padded_spectrogram(input_file, output_file, max_length, save_image=
     y, _ = librosa.effects.trim(y)
 
     # Compute the spectrogram
-    # D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
+    #D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
     D = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
 
     # Pad or truncate the spectrogram to the desired length
@@ -74,6 +70,7 @@ def generate_all_spectrograms():
         if os.path.isdir(emotion_path):
             if num_classes == 6 and emotion == "Neutral":
                 continue
+
 
             # Create output directory for the current emotion
             output_dir = os.path.join(output_root, emotion)
@@ -137,7 +134,6 @@ def get_max_size():
 
     return max_size
 
-
 def load_spectrogram_data():
     loaded_data = np.load(f'spectrograms/spectrogram_data{num_classes}.npz')
 
@@ -191,76 +187,5 @@ def train(config=None):
         # Finish the wandb run
         wandb.finish()
 
-
-def new_ml():
-    # # Initialize wandb
-    # wandb.init(
-    #     # set the wandb project where this run will be logged
-    #     project="audioemo",
-    #
-    #     # track hyperparameters and run metadata with wandb.config
-    #     config={
-    #         "layer_size_1": 128,
-    #         "layer_size_2": 64,
-    #         "layer_size_3": 128,
-    #         "activation_3": "relu",
-    #         "dropout": 0.4,
-    #         "activation_4": "softmax",
-    #         "optimizer": "adam",
-    #         "loss": "categorical_crossentropy",
-    #         "metric": ["accuracy"],
-    #         "epoch": 10,
-    #         "batch_size": 32
-    #     }
-    # )
-    config = {
-        "layer_size_1": 128,
-        "layer_size_2": 64,
-        "layer_size_3": 128,
-        "activation_3": "relu",
-        "dropout": 0.4,
-        "activation_4": "softmax",
-        "optimizer": "adam",
-        "loss": "categorical_crossentropy",
-        "metric": ["accuracy"],
-        "epoch": 10,
-        "batch_size": 32
-    }
-    train(config)
-
-
 if __name__ == "__main__":
-    if not os.path.exists(f"spectrograms/spectrogram_data{num_classes}.npz"):
-        X_data, y_data = generate_all_spectrograms()
-    else:
-        X_data, y_data = load_spectrogram_data()
-
-    run = wandb.init()
-    model_artifact = run.use_artifact('audioemo/audioemo/run_o2b824li_model:v9', type='model')
-    model_dir = model_artifact.download()
-
-
-    model_path = os.path.join(model_dir, "initialized_model.pth")
-    model_config = model_artifact.metadata
-    config = wandb.config
-    config.update(model_config)
-    x_train, x_test, y_train, y_test = train_test_split(X_data, y_data, test_size=0.1, random_state=42)
-    model = Sequential(**model_config)
-    model.load_state_dict(torch.load(model_path))
-    model = model.to(device)
-    model.summary()
-
-    accuracy = model.evaluate(x_test, y_test)[1]
-    print(f"Test Accuracy: {accuracy * 100}%")
-
-    # Evaluate the model on the test set
-    accuracy_train = model.evaluate(x_train[0:1000], y_train[0:1000])[1]
-    print(f"Test Accuracy: {accuracy_train * 100}%")
-
-    # Log test results using wandb
-    wandb.log({'test_accuracy': accuracy * 100, 'subset_train_accuracy': accuracy_train * 100})
-
-
-
-
-    wandb.finish()
+    wandb.agent(sweep_id, train, count=3, project='audioemo')
